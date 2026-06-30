@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Absensi Karyawan</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, sans-serif;
+    background: #f0f2f5;
+    margin: 0;
+    padding: 16px;
+    color: #1a1a1a;
+  }
+  .card {
+    max-width: 420px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+  h2 { text-align: center; margin-top: 0; }
+  .step { display: none; }
+  .step.active { display: block; }
+  input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 16px;
+    margin-bottom: 12px;
+  }
+  button {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 8px;
+    background: #2563eb;
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+  }
+  button:disabled { background: #aaa; }
+  #qr-reader { width: 100%; border-radius: 8px; overflow: hidden; }
+  #camera-view, #captured-photo {
+    width: 100%;
+    border-radius: 8px;
+    margin-top: 12px;
+  }
+  .status {
+    text-align: center;
+    padding: 10px;
+    border-radius: 8px;
+    margin-top: 12px;
+    font-weight: 600;
+  }
+  .status.ok { background: #dcfce7; color: #15803d; }
+  .status.fail { background: #fee2e2; color: #b91c1c; }
+  .info-text { font-size: 14px; color: #666; text-align: center; margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h2>📋 Absensi Karyawan</h2>
+
+  <!-- STEP 1: Input Nama -->
+  <div class="step active" id="step1">
+    <input type="text" id="namaInput" placeholder="Masukkan nama lengkap">
+    <button onclick="goToStep(2)">Lanjut</button>
+  </div>
+
+  <!-- STEP 2: Scan QR -->
+  <div class="step" id="step2">
+    <p class="info-text">Scan QR code yang ada di lokasi kantor</p>
+    <div id="qr-reader"></div>
+    <div id="qrResultBox"></div>
+  </div>
+
+  <!-- STEP 3: Lokasi -->
+  <div class="step" id="step3">
+    <p class="info-text">Mengambil lokasi GPS...</p>
+    <div id="locationResultBox"></div>
+  </div>
+
+  <!-- STEP 4: Selfie -->
+  <div class="step" id="step4">
+    <p class="info-text">Ambil foto selfie</p>
+    <video id="camera-view" autoplay playsinline></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <img id="captured-photo" style="display:none;">
+    <button id="captureBtn" onclick="capturePhoto()">📸 Ambil Foto</button>
+    <button id="retakeBtn" style="display:none; background:#666;" onclick="retakePhoto()">Ulangi</button>
+    <button id="submitBtn" style="display:none;" onclick="submitAbsensi()">✅ Submit Absensi</button>
+  </div>
+
+  <!-- STEP 5: Selesai -->
+  <div class="step" id="step5">
+    <div class="status ok" id="finalStatus">Absensi berhasil dikirim!</div>
+  </div>
+</div>
+
+<script>
+// ===== GANTI DENGAN URL WEB APP APPS SCRIPT LO =====
+const SCRIPT_URL = 'GANTI_DENGAN_URL_WEB_APP_LO';
+
+let nama = '';
+let qrResult = '';
+let latitude = '';
+let longitude = '';
+let photoBase64 = '';
+let stream = null;
+let html5QrCode = null;
+
+function showStep(num) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById('step' + num).classList.add('active');
+}
+
+function goToStep(num) {
+  if (num === 2) {
+    nama = document.getElementById('namaInput').value.trim();
+    if (!nama) { alert('Nama wajib diisi'); return; }
+    showStep(2);
+    startQrScanner();
+  }
+}
+
+function startQrScanner() {
+  html5QrCode = new Html5Qrcode("qr-reader");
+  html5QrCode.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: 220 },
+    (decodedText) => {
+      qrResult = decodedText;
+      html5QrCode.stop();
+      document.getElementById('qrResultBox').innerHTML =
+        '<div class="status ok">QR terbaca: ' + decodedText + '</div>';
+      setTimeout(() => { showStep(3); getLocation(); }, 800);
+    },
+    (errorMessage) => { /* abaikan, dipanggil terus saat belum nemu QR */ }
+  ).catch(err => {
+    document.getElementById('qrResultBox').innerHTML =
+      '<div class="status fail">Gagal akses kamera: ' + err + '</div>';
+  });
+}
+
+function getLocation() {
+  if (!navigator.geolocation) {
+    document.getElementById('locationResultBox').innerHTML =
+      '<div class="status fail">Browser tidak support GPS</div>';
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      latitude = pos.coords.latitude;
+      longitude = pos.coords.longitude;
+      document.getElementById('locationResultBox').innerHTML =
+        '<div class="status ok">Lokasi didapat: ' + latitude.toFixed(5) + ', ' + longitude.toFixed(5) + '</div>';
+      setTimeout(() => { showStep(4); startCamera(); }, 800);
+    },
+    (err) => {
+      document.getElementById('locationResultBox').innerHTML =
+        '<div class="status fail">Gagal ambil lokasi: ' + err.message + '. Pastikan izin GPS diaktifkan.</div>';
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+function startCamera() {
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+    .then((s) => {
+      stream = s;
+      document.getElementById('camera-view').srcObject = stream;
+    })
+    .catch((err) => {
+      alert('Gagal akses kamera depan: ' + err);
+    });
+}
+
+function capturePhoto() {
+  const video = document.getElementById('camera-view');
+  const canvas = document.getElementById('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  photoBase64 = canvas.toDataURL('image/jpeg', 0.7);
+
+  document.getElementById('captured-photo').src = photoBase64;
+  document.getElementById('captured-photo').style.display = 'block';
+  video.style.display = 'none';
+
+  document.getElementById('captureBtn').style.display = 'none';
+  document.getElementById('retakeBtn').style.display = 'block';
+  document.getElementById('submitBtn').style.display = 'block';
+}
+
+function retakePhoto() {
+  document.getElementById('camera-view').style.display = 'block';
+  document.getElementById('captured-photo').style.display = 'none';
+  document.getElementById('captureBtn').style.display = 'block';
+  document.getElementById('retakeBtn').style.display = 'none';
+  document.getElementById('submitBtn').style.display = 'none';
+  photoBase64 = '';
+}
+
+function submitAbsensi() {
+  document.getElementById('submitBtn').disabled = true;
+  document.getElementById('submitBtn').innerText = 'Mengirim...';
+
+  fetch(SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      nama: nama,
+      latitude: latitude,
+      longitude: longitude,
+      qrResult: qrResult,
+      photoBase64: photoBase64
+    })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    const statusBox = document.getElementById('finalStatus');
+    if (data.result === 'success') {
+      statusBox.className = data.qrStatus === 'VALID' ? 'status ok' : 'status fail';
+      statusBox.innerText = data.qrStatus === 'VALID'
+        ? '✅ Absensi berhasil! QR valid.'
+        : '⚠️ Absensi tercatat, tapi QR TIDAK VALID. Cek lokasi scan.';
+    } else {
+      statusBox.className = 'status fail';
+      statusBox.innerText = '❌ Gagal: ' + data.message;
+    }
+    showStep(5);
+  })
+  .catch(err => {
+    alert('Gagal mengirim data: ' + err);
+    document.getElementById('submitBtn').disabled = false;
+    document.getElementById('submitBtn').innerText = '✅ Submit Absensi';
+  });
+}
+</script>
+
+</body>
+</html>
