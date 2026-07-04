@@ -25,14 +25,16 @@
   h2 { text-align: center; margin-top: 0; }
   .step { display: none; }
   .step.active { display: block; }
-  input, select {
+  input, select, textarea {
     width: 100%;
     padding: 12px;
     border: 1px solid #ddd;
     border-radius: 8px;
     font-size: 16px;
     margin-bottom: 12px;
+    font-family: inherit;
   }
+  textarea { resize: vertical; min-height: 80px; }
   button {
     width: 100%;
     padding: 14px;
@@ -72,6 +74,22 @@
   .status.fail { background: #fee2e2; color: #b91c1c; }
   .info-text { font-size: 14px; color: #666; text-align: center; margin: 8px 0; }
   .jenis-label { font-size: 13px; color: #888; margin: 14px 0 6px; font-weight: 600; }
+  .upload-area {
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    padding: 24px;
+    text-align: center;
+    color: #888;
+    cursor: pointer;
+    margin-bottom: 12px;
+  }
+  .upload-area.has-file { border-color: #2563eb; color: #2563eb; }
+  #screenshotPreview {
+    width: 100%;
+    border-radius: 8px;
+    margin-top: 8px;
+    display: none;
+  }
 </style>
 </head>
 <body>
@@ -113,22 +131,35 @@
     <p class="info-text">Pilih jenis absensi</p>
 
     <div class="jenis-label">Di Kantor</div>
-    <button class="jenis-btn" onclick="pilihJenis('Absen Masuk', true, false)">🟢 Absen Masuk</button>
-    <button class="jenis-btn" onclick="pilihJenis('Absen Pulang', true, false)">🔴 Absen Pulang</button>
-    <button class="jenis-btn" onclick="pilihJenis('Dinas Lapangan dari Kantor', true, true)">🚗 Dinas Lapangan dari Kantor</button>
-    <button class="jenis-btn" onclick="pilihJenis('Ijin dari Kantor', true, true)">📝 Ijin dari Kantor</button>
+    <button class="jenis-btn" onclick="pilihJenis('Absen Masuk', true, false, false)">🟢 Absen Masuk</button>
+    <button class="jenis-btn" onclick="pilihJenis('Absen Pulang', true, false, false)">🔴 Absen Pulang</button>
+    <button class="jenis-btn" onclick="pilihJenis('Ijin dari Kantor', true, true, false)">📝 Ijin dari Kantor</button>
 
     <div class="jenis-label">Di Luar Kantor</div>
-    <button class="jenis-btn" onclick="pilihJenis('Dinas Lapangan dari Rumah', false, true)">🏠 Dinas Lapangan dari Rumah</button>
-    <button class="jenis-btn" onclick="pilihJenis('Ijin dari Rumah', false, true)">🏠 Ijin dari Rumah</button>
-    <button class="jenis-btn" onclick="pilihJenis('Pulang dari Luar', false, true)">🔚 Pulang dari Luar</button>
+    <button class="jenis-btn" onclick="pilihJenis('Dinas Lapangan dari Rumah', false, true, false)">🚗 Dinas Lapangan dari Rumah</button>
+    <button class="jenis-btn" onclick="pilihJenis('Ijin dari Rumah', false, true, false)">📝 Ijin dari Rumah</button>
+    <button class="jenis-btn" onclick="pilihJenis('Pulang dari Luar', false, true, false)">🔚 Pulang dari Luar</button>
+    <button class="jenis-btn" onclick="pilihJenis('Sakit', false, true, true)">🤒 Sakit</button>
   </div>
 
-  <!-- STEP 2b: Keterangan (kondisional) -->
+  <!-- STEP 2b: Keterangan teks (kondisional) -->
   <div class="step" id="step2b">
     <p class="info-text">Isi keterangan / penjelasan</p>
-    <input type="text" id="keteranganInput" placeholder="Contoh: Meeting client di Jakarta">
+    <textarea id="keteranganInput" placeholder="Contoh: Demam sejak semalam, sudah info ke atasan"></textarea>
+    <div id="keteranganErrorBox"></div>
     <button onclick="submitKeterangan()">Lanjut</button>
+  </div>
+
+  <!-- STEP 2c: Upload screenshot (khusus Sakit) -->
+  <div class="step" id="step2c">
+    <p class="info-text">Upload screenshot chat ke atasan sebagai bukti</p>
+    <div class="upload-area" id="uploadArea" onclick="document.getElementById('screenshotInput').click()">
+      📎 Tap untuk pilih gambar
+    </div>
+    <input type="file" id="screenshotInput" accept="image/*" style="display:none" onchange="previewScreenshot(event)">
+    <img id="screenshotPreview">
+    <div id="uploadErrorBox"></div>
+    <button onclick="submitScreenshot()">Lanjut</button>
   </div>
 
   <!-- STEP 3: Scan QR (kondisional) -->
@@ -144,7 +175,7 @@
     <div id="locationResultBox"></div>
   </div>
 
-  <!-- STEP 5: Selfie -->
+  <!-- STEP 5: Selfie (dilewati kalau Sakit) -->
   <div class="step" id="step5">
     <p class="info-text">Ambil foto selfie</p>
     <video id="camera-view" autoplay playsinline></video>
@@ -169,7 +200,9 @@ let nama = '';
 let jenisAbsen = '';
 let butuhQr = false;
 let butuhKeterangan = false;
+let isSakit = false;
 let keterangan = '';
+let screenshotBase64 = '';
 let qrResult = '';
 let latitude = '';
 let longitude = '';
@@ -204,7 +237,6 @@ function daftarDevice() {
   localStorage.setItem('absensi_nama', namaPilih);
   localStorage.setItem('absensi_pin', pin1);
   nama = namaPilih;
-
   showStep(2);
 }
 
@@ -226,12 +258,17 @@ function showStep(num) {
   document.getElementById('step' + num).classList.add('active');
 }
 
-function pilihJenis(jenis, perluQr, perluKeterangan) {
+// perluQr, perluKeterangan, sakitMode
+function pilihJenis(jenis, perluQr, perluKeterangan, sakitMode) {
   jenisAbsen = jenis;
   butuhQr = perluQr;
   butuhKeterangan = perluKeterangan;
+  isSakit = sakitMode;
+  screenshotBase64 = '';
+  keterangan = '';
 
   if (butuhKeterangan) {
+    document.getElementById('keteranganInput').value = '';
     showStep('2b');
   } else {
     lanjutSetelahKeterangan();
@@ -240,7 +277,43 @@ function pilihJenis(jenis, perluQr, perluKeterangan) {
 
 function submitKeterangan() {
   keterangan = document.getElementById('keteranganInput').value.trim();
-  if (!keterangan) { alert('Keterangan wajib diisi'); return; }
+  const errBox = document.getElementById('keteranganErrorBox');
+  if (!keterangan) {
+    errBox.innerHTML = '<div class="status fail">Keterangan wajib diisi</div>';
+    return;
+  }
+  errBox.innerHTML = '';
+
+  // Kalau sakit, lanjut ke upload screenshot dulu
+  if (isSakit) {
+    showStep('2c');
+  } else {
+    lanjutSetelahKeterangan();
+  }
+}
+
+function previewScreenshot(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    screenshotBase64 = e.target.result;
+    document.getElementById('screenshotPreview').src = screenshotBase64;
+    document.getElementById('screenshotPreview').style.display = 'block';
+    document.getElementById('uploadArea').innerText = '✅ ' + file.name;
+    document.getElementById('uploadArea').classList.add('has-file');
+  };
+  reader.readAsDataURL(file);
+}
+
+function submitScreenshot() {
+  const errBox = document.getElementById('uploadErrorBox');
+  if (!screenshotBase64) {
+    errBox.innerHTML = '<div class="status fail">Screenshot wajib diupload sebagai bukti</div>';
+    return;
+  }
+  errBox.innerHTML = '';
   lanjutSetelahKeterangan();
 }
 
@@ -249,7 +322,7 @@ function lanjutSetelahKeterangan() {
     showStep(3);
     startQrScanner();
   } else {
-    qrResult = ''; // tidak ada QR untuk jenis ini
+    qrResult = '';
     showStep(4);
     getLocation();
   }
@@ -267,7 +340,7 @@ function startQrScanner() {
         '<div class="status ok">QR terbaca: ' + decodedText + '</div>';
       setTimeout(() => { showStep(4); getLocation(); }, 800);
     },
-    (errorMessage) => { /* abaikan, dipanggil terus saat belum nemu QR */ }
+    (errorMessage) => { /* abaikan */ }
   ).catch(err => {
     document.getElementById('qrResultBox').innerHTML =
       '<div class="status fail">Gagal akses kamera: ' + err + '</div>';
@@ -286,7 +359,13 @@ function getLocation() {
       longitude = pos.coords.longitude;
       document.getElementById('locationResultBox').innerHTML =
         '<div class="status ok">Lokasi didapat: ' + latitude.toFixed(5) + ', ' + longitude.toFixed(5) + '</div>';
-      setTimeout(() => { showStep(5); startCamera(); }, 800);
+
+      // Kalau Sakit, skip selfie langsung submit otomatis
+      if (isSakit) {
+        setTimeout(() => { submitAbsensi(); }, 800);
+      } else {
+        setTimeout(() => { showStep(5); startCamera(); }, 800);
+      }
     },
     (err) => {
       document.getElementById('locationResultBox').innerHTML =
@@ -334,8 +413,18 @@ function retakePhoto() {
 }
 
 function submitAbsensi() {
-  document.getElementById('submitBtn').disabled = true;
-  document.getElementById('submitBtn').innerText = 'Mengirim...';
+  // Kalau dari step selfie, disable tombolnya
+  const submitBtn = document.getElementById('submitBtn');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Mengirim...';
+  }
+
+  // Kalau sakit, tampilkan loading di step lokasi
+  if (isSakit) {
+    document.getElementById('locationResultBox').innerHTML +=
+      '<div class="status ok" style="margin-top:8px">Mengirim data...</div>';
+  }
 
   fetch(SCRIPT_URL, {
     method: 'POST',
@@ -344,11 +433,13 @@ function submitAbsensi() {
       nama: nama,
       jenisAbsen: jenisAbsen,
       keterangan: keterangan,
-      butuhQr: butuhQr,
+      isSakit: isSakit,
       latitude: latitude,
       longitude: longitude,
       qrResult: qrResult,
-      photoBase64: photoBase64
+      butuhQr: butuhQr,
+      photoBase64: isSakit ? '' : photoBase64,
+      screenshotBase64: isSakit ? screenshotBase64 : ''
     })
   })
   .then(res => res.json())
@@ -356,7 +447,10 @@ function submitAbsensi() {
     if (stream) stream.getTracks().forEach(t => t.stop());
     const statusBox = document.getElementById('finalStatus');
     if (data.result === 'success') {
-      if (!butuhQr) {
+      if (isSakit) {
+        statusBox.className = 'status ok';
+        statusBox.innerText = '✅ Absensi Sakit berhasil dikirim! Semoga cepat sembuh 🙏';
+      } else if (!butuhQr) {
         statusBox.className = 'status ok';
         statusBox.innerText = '✅ Absensi (' + jenisAbsen + ') berhasil dikirim!';
       } else {
@@ -373,8 +467,10 @@ function submitAbsensi() {
   })
   .catch(err => {
     alert('Gagal mengirim data: ' + err);
-    document.getElementById('submitBtn').disabled = false;
-    document.getElementById('submitBtn').innerText = '✅ Submit Absensi';
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerText = '✅ Submit Absensi';
+    }
   });
 }
 </script>
