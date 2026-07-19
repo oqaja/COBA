@@ -190,22 +190,40 @@
 
   /* ===== PROFIL ===== */
   #page-profil { padding: 16px; }
-  .profil-header { text-align: center; margin-bottom: 20px; padding-top: 8px; }
-  .profil-foto-wrap { position: relative; width: 88px; height: 88px; margin: 0 auto 12px; }
+  .profil-header {
+  display: flex; align-items: center; gap: 16px;
+  margin-bottom: 20px; padding-top: 8px;
+  }
+  .profil-foto-wrap { position: relative; width: 88px; height: 88px; flex-shrink: 0; }
   .profil-foto {
     width: 88px; height: 88px; border-radius: 50%; object-fit: cover;
     border: 3px solid var(--mint); background: rgba(0,200,150,0.1);
     display: flex; align-items: center; justify-content: center;
     font-size: 36px; overflow: hidden;
   }
-  .profil-foto img { width: 100%; height: 100%; object-fit: cover; }
+  .profil-foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .profil-foto-edit {
     position: absolute; bottom: 0; right: 0; width: 28px; height: 28px;
     background: var(--mint); border-radius: 50%; display: flex; align-items: center;
     justify-content: center; cursor: pointer; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
   }
-  .profil-nama { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
-  .profil-sub { font-size: 13px; color: var(--text-muted); }
+  .profil-info { flex: 1; min-width: 0; }
+  .profil-nama { font-size: 20px; font-weight: 800; margin-bottom: 2px; }
+  .profil-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+  .profil-level-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(0,200,150,0.12); border: 1px solid rgba(0,200,150,0.25);
+  color: var(--mint); font-size: 11px; font-weight: 700;
+  padding: 3px 10px; border-radius: 20px; margin-bottom: 10px;
+  }
+  .profil-bar-wrap {
+  height: 6px; background: var(--card-2); border-radius: 99px; overflow: hidden; width: 100%;
+  }
+  .profil-bar-fill {
+  height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, var(--mint), #00e8b0);
+  transition: width 1s cubic-bezier(.34,1.56,.64,1); width: 0%;
+  }
 
   /* 4-col stat grid */
   .stat-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -443,16 +461,22 @@
 <div class="page" id="page-profil">
   <div style="padding:16px">
 
-    <!-- Header profil -->
     <div class="profil-header">
-      <div class="profil-foto-wrap">
-        <div class="profil-foto" id="profilFotoEl">👤</div>
-        <div class="profil-foto-edit" onclick="document.getElementById('fotoInput').click()">✏️</div>
-        <input type="file" id="fotoInput" accept="image/*" style="display:none" onchange="gantiProfilFoto(event)">
-      </div>
-      <div class="profil-nama" id="profilNama">—</div>
-      <div class="profil-sub">Karyawan Aktif</div>
+  <div class="profil-foto-wrap">
+    <div class="profil-foto" id="profilFotoEl">👤</div>
+    <div class="profil-foto-edit" onclick="document.getElementById('fotoInput').click()">✏️</div>
+    <input type="file" id="fotoInput" accept="image/*" style="display:none" onchange="gantiProfilFoto(event)">
+  </div>
+  <div class="profil-info">
+    <div class="profil-nama" id="profilNama">—</div>
+    <div class="profil-sub">Karyawan Aktif</div>
+    <div class="profil-level-badge">⭐ Level <span id="profilLevel">0</span></div>
+    <div class="profil-bar-wrap">
+      <div class="profil-bar-fill" id="profilBarFill"></div>
     </div>
+    <div id="profilLevelHint" style="display:none; font-size:10px; color:var(--danger); margin-top:6px; font-weight:600;"></div>
+  </div>
+</div>
 
     <!-- Stat 4 kolom -->
     <div class="section-label">Rekap Bulan Ini</div>
@@ -485,7 +509,7 @@
 
 <script>
 // URL dasar Apps Script (TANPA query string di sini, query ditambahkan saat fetch)
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzkn2WiMz8odZt3EDZX5MwVDPITiFQ9Qvcm2JsZ_E8qYsxUnWk-fkgj-dWhNiU_Oj8E/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxDjfUyqGAaSfJxBHZ2ULgXyttVSgTJFBt9D8KF6m-wvbcNEzEbol9DbtzzPoxMXP79/exec';
 
 const GREETINGS = [
   { text: "Di era AI kayak sekarang, yang paling dibutuhin tetep manusia yang konsisten. Lo salah satunya! 💪", emoji: "🤖" },
@@ -930,6 +954,19 @@ async function renderProfil() {
   const absensi = await fetchAbsensi(savedNama, now.getMonth() + 1, now.getFullYear());
   document.getElementById('profilLoadingBox').style.display = 'none';
 
+  // Hitung level & bar dari histori semua bulan
+  const allResult = await fetchAllAbsensi(savedNama);
+  const { level, persen } = hitungLevelDanBar(allResult.data);
+  document.getElementById('profilLevel').textContent = level;
+  document.getElementById('profilBarFill').style.width = persen + '%';
+  const hintEl = document.getElementById('profilLevelHint');
+  if (!allResult.ok) {
+    hintEl.textContent = '⚠️ Level belum bisa dimuat — cek endpoint getAllAbsensi di Apps Script (lihat console)';
+    hintEl.style.display = 'block';
+  } else {
+    hintEl.style.display = 'none';
+  }
+
   // Hitung rekap
   const hadirDates = new Set(), sakitDates = new Set(), ijinDates = new Set(), lambatDates = new Set();
 
@@ -1132,6 +1169,93 @@ function showLoadingError(msg) {
     const el = document.getElementById(id);
     if (el) { el.textContent = msg; el.style.display = 'block'; }
   });
+}
+
+async function fetchAllAbsensi(nama) {
+  if (!nama || nama === '—') return { ok: false, data: [] };
+  try {
+    const url = SCRIPT_URL + '?action=getAllAbsensi&nama=' + encodeURIComponent(nama);
+    const res = await fetch(url, { redirect: 'follow' });
+    const rawText = await res.text();
+
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.error('[fetchAllAbsensi] Response BUKAN JSON — kemungkinan besar Apps Script belum di-deploy ulang dengan action "getAllAbsensi". Raw response:', rawText.substring(0, 200));
+      return { ok: false, data: [] };
+    }
+
+    if (data.result === 'success') return { ok: true, data: data.data };
+    console.error('[fetchAllAbsensi] Error dari Apps Script:', data.message);
+    return { ok: false, data: [] };
+  } catch(e) {
+    console.error('fetchAllAbsensi error:', e);
+    return { ok: false, data: [] };
+  }
+}
+
+function countWorkingDaysInMonth(year, month) {
+  // month 1-indexed, hitung Senin-Sabtu
+  const lastDay = new Date(year, month, 0).getDate();
+  let count = 0;
+  for (let d = 1; d <= lastDay; d++) {
+    if (new Date(year, month - 1, d).getDay() !== 0) count++;
+  }
+  return count;
+}
+
+function hitungLevelDanBar(allData) {
+  // Penilaian Level & progress bar dimulai dari sini, bukan dari absen paling awal
+  const START_YEAR = 2026, START_MONTH = 7; // Juli 2026
+
+  // Kelompokkan per bulan
+  const byMonth = new Map();
+  allData.forEach(row => {
+    const key = row.tahun + '-' + String(row.bulan).padStart(2,'0');
+    if (!byMonth.has(key)) byMonth.set(key, { tahun: row.tahun, bulan: row.bulan, rows: [] });
+    byMonth.get(key).rows.push(row);
+  });
+
+  const now = new Date();
+  let totalWorkingDays = 0, totalHadirDays = 0, level = 0;
+  let y = START_YEAR, m = START_MONTH;
+
+  while (y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth() + 1)) {
+    const key = y + '-' + String(m).padStart(2,'0');
+    const workingDays = countWorkingDaysInMonth(y, m);
+    totalWorkingDays += workingDays;
+
+    const monthData = byMonth.get(key);
+    if (monthData) {
+      const hadirDates = new Set(), sakitDates = new Set();
+      const ijinDates = new Set(), lambatDates = new Set();
+
+      monthData.rows.forEach(row => {
+        if (row.jenisAbsen === 'Absen Masuk' || row.jenisAbsen === 'Dinas Lapangan dari Rumah') {
+          hadirDates.add(row.tanggal);
+          if (row.jenisAbsen === 'Absen Masuk' && isLambat(row.jam, row.menit)) lambatDates.add(row.tanggal);
+        } else if (row.jenisAbsen === 'Sakit') sakitDates.add(row.tanggal);
+        else if (row.jenisAbsen === 'Ijin dari Rumah' || row.jenisAbsen === 'Ijin dari Kantor') ijinDates.add(row.tanggal);
+      });
+
+      totalHadirDays += hadirDates.size;
+
+      // Cek level hanya untuk bulan yang sudah selesai
+      const isBulanIni = (y === now.getFullYear() && m === now.getMonth() + 1);
+      if (!isBulanIni) {
+        if (hadirDates.size === workingDays &&
+            sakitDates.size === 0 && ijinDates.size === 0 && lambatDates.size === 0) {
+          level++;
+        }
+      }
+    }
+
+    m++; if (m > 12) { m = 1; y++; }
+  }
+
+  const persen = totalWorkingDays > 0 ? Math.round((totalHadirDays / totalWorkingDays) * 100) : 0;
+  return { level, persen };
 }
 
 function gantiProfilFoto(event) {
