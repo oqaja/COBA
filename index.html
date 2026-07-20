@@ -289,17 +289,47 @@
   }
 
   .loading-text { text-align: center; color: var(--text-muted); font-size: 13px; padding: 20px 0; }
+/* LEADERBOARD */
+.lb-podium { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 4px; }
+.lb-pod-card {
+  flex: 1; border-radius: var(--radius); padding: 14px 10px 12px;
+  text-align: center; border: 1px solid var(--border); position: relative;
+}
+.lb-pod-card.rank-1 { background: linear-gradient(145deg, #2a2400, #1a1600); border-color: rgba(255,186,0,0.4); }
+.lb-pod-card.rank-2 { background: linear-gradient(145deg, #1e1e26, #161620); border-color: rgba(180,180,200,0.3); }
+.lb-pod-card.rank-3 { background: linear-gradient(145deg, #1e1a18, #141210); border-color: rgba(180,100,60,0.3); }
+.lb-pod-rank { font-size: 22px; margin-bottom: 6px; line-height: 1; }
+.lb-pod-nama { font-size: 13px; font-weight: 800; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-pod-score { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; display: inline-block; }
+.rank-1 .lb-pod-score { background: rgba(255,186,0,0.18); color: var(--yellow); }
+.rank-2 .lb-pod-score { background: rgba(200,200,220,0.12); color: #c8c8dc; }
+.rank-3 .lb-pod-score { background: rgba(180,100,60,0.18); color: #e08050; }
+.lb-pod-sub { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+
+.lb-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 8px;
+}
+.lb-row-rank { font-size: 14px; font-weight: 800; color: var(--text-muted); width: 24px; text-align: center; flex-shrink: 0; }
+.lb-row-nama { flex: 1; font-size: 14px; font-weight: 700; }
+.lb-row-score { font-size: 13px; font-weight: 800; color: var(--mint); }
+.lb-row-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.lb-me { border-color: rgba(0,200,150,0.4); background: rgba(0,200,150,0.06); }
 </style>
 </head>
 <body>
 
 <!-- BOTTOM NAV -->
-<nav class="bottom-nav">
+<nav class="bottom-nav" style="max-width:360px;">
   <div class="nav-item active" id="nav-home" onclick="goPage('home')">
     <span class="nav-icon">🏠</span>
   </div>
   <div class="nav-item" id="nav-absen" onclick="goPage('absen')">
     <span class="nav-icon">📋</span>
+  </div>
+  <div class="nav-item" id="nav-leaderboard" onclick="goPage('leaderboard')">
+    <span class="nav-icon">🏆</span>
   </div>
   <div class="nav-item" id="nav-profil" onclick="goPage('profil')">
     <span class="nav-icon">👤</span>
@@ -471,9 +501,12 @@
     <div class="profil-nama" id="profilNama">—</div>
     <div class="profil-sub">Karyawan Aktif</div>
     <div class="profil-level-badge">⭐ Level <span id="profilLevel">0</span></div>
-    <div class="profil-bar-wrap">
-      <div class="profil-bar-fill" id="profilBarFill"></div>
-    </div>
+    <div style="display:flex; align-items:center; gap:8px;">
+  <div class="profil-bar-wrap" style="flex:1">
+    <div class="profil-bar-fill" id="profilBarFill"></div>
+  </div>
+  <span id="profilBarPersen" style="font-size:11px; font-weight:700; color:var(--mint); min-width:32px; text-align:right;">0%</span>
+</div>
     <div id="profilLevelHint" style="display:none; font-size:10px; color:var(--danger); margin-top:6px; font-weight:600;"></div>
   </div>
 </div>
@@ -564,6 +597,7 @@ let latitude = '', longitude = '', photoBase64 = '';
 let stream = null, html5QrCode = null;
 let absensiCache = null;
 let chartInstance = null;
+let sudahAbsenMasukHariIni = false;
 
 function hashString(str) {
   let h = 0;
@@ -590,6 +624,7 @@ function goPage(page) {
   if (page === 'home') renderHome();
   if (page === 'profil') renderProfil();
   if (page === 'absen') initAbsenPage();
+  if (page === 'leaderboard') renderLeaderboard();
   window.scrollTo(0, 0);
 }
 
@@ -646,7 +681,19 @@ function updateCountdownCard() {
   const now = new Date();
   const day = now.getDay(); // 0 = Minggu
 
-  if (day === 0) {
+  if (day === 0) 
+  function updateCountdownCard() {
+  const card = document.getElementById('countdownAbsenCard');
+  if (!card) return;
+  const now = new Date();
+  const day = now.getDay();
+
+  // TAMBAHAN: sembunyikan kalau hari Minggu ATAU sudah absen hari ini
+  if (day === 0 || sudahAbsenMasukHariIni) {
+    card.style.display = 'none';
+    return;
+  }
+  // ... sisa kode tetap sama {
     card.style.display = 'none';
     return;
   }
@@ -688,15 +735,33 @@ async function renderTodayAbsen() {
 
   const masukEl = document.getElementById('todayMasukJam');
   const pulangEl = document.getElementById('todayPulangJam');
+  const masukCard = masukEl.closest('.today-summary-card');
+
+  // Reset warna card masuk
+  masukCard.style.background = '';
+  masukCard.style.borderColor = '';
+  masukEl.style.color = '';
 
   if (todayRows.length) {
     const first = todayRows[0];
     const last = todayRows[todayRows.length - 1];
+
     masukEl.textContent = fmtJam(first.jam, first.menit);
     pulangEl.textContent = todayRows.length > 1 ? fmtJam(last.jam, last.menit) : '--:--';
+
+    // Cek apakah sudah absen hari ini → sembunyikan countdown
+    sudahAbsenMasukHariIni = true;
+
+    // Warna merah kalau Absen Masuk terlambat
+    if (first.jenisAbsen === 'Absen Masuk' && isLambat(first.jam, first.menit)) {
+      masukCard.style.background = 'rgba(255,92,92,0.08)';
+      masukCard.style.borderColor = 'rgba(255,92,92,0.35)';
+      masukEl.style.color = 'var(--danger)';
+    }
   } else {
     masukEl.textContent = '--:--';
     pulangEl.textContent = '--:--';
+    sudahAbsenMasukHariIni = false;
   }
 }
 
@@ -959,6 +1024,7 @@ async function renderProfil() {
   const { level, persen } = hitungLevelDanBar(allResult.data);
   document.getElementById('profilLevel').textContent = level;
   document.getElementById('profilBarFill').style.width = persen + '%';
+  document.getElementById('profilBarPersen').textContent = persen + '%';
   const hintEl = document.getElementById('profilLevelHint');
   if (!allResult.ok) {
     hintEl.textContent = '⚠️ Level belum bisa dimuat — cek endpoint getAllAbsensi di Apps Script (lihat console)';
@@ -1258,6 +1324,145 @@ function hitungLevelDanBar(allData) {
   return { level, persen };
 }
 
+// ===== LEADERBOARD =====
+const HR_KEY = 'hr123'; // harus sama dengan di Apps Script
+
+async function renderLeaderboard() {
+  const now = new Date();
+  const bulanNames = ['Januari','Februari','Maret','April','Mei','Juni',
+    'Juli','Agustus','September','Oktober','November','Desember'];
+  document.getElementById('lbBulanLabel').textContent =
+    'Penilaian bulan ' + bulanNames[now.getMonth()] + ' ' + now.getFullYear();
+  document.getElementById('lbLoadingBox').style.display = 'block';
+  document.getElementById('lbErrorBox').style.display = 'none';
+  document.getElementById('lbTop3').innerHTML = '';
+  document.getElementById('lbRest').innerHTML = '';
+
+  try {
+    const url = SCRIPT_URL + '?action=getRekapHR&key=' + HR_KEY
+      + '&month=' + (now.getMonth() + 1) + '&year=' + now.getFullYear();
+    const res = await fetch(url, { redirect: 'follow' });
+    const rawText = await res.text();
+    if (rawText.trim().startsWith('<')) throw new Error('Response HTML, bukan JSON');
+    const data = JSON.parse(rawText);
+    if (data.result !== 'success') throw new Error(data.message || 'Error dari server');
+
+    // Hitung skor tiap karyawan
+    const ranked = data.data
+      .map(emp => ({ nama: emp.nama, ...hitungSkorKaryawan(emp.absensi, now) }))
+      .sort((a, b) => b.skor - a.skor || a.avgMasukMenit - b.avgMasukMenit);
+
+    renderLbTop3(ranked.slice(0, 3));
+    renderLbRest(ranked.slice(3));
+  } catch(e) {
+    console.error('Leaderboard error:', e);
+    document.getElementById('lbErrorBox').textContent = '⚠️ Gagal memuat: ' + e.message;
+    document.getElementById('lbErrorBox').style.display = 'block';
+  }
+  document.getElementById('lbLoadingBox').style.display = 'none';
+}
+
+function hitungSkorKaryawan(absensi, now) {
+  const hadirDates = new Set(), sakitDates = new Set();
+  const ijinDates = new Set(), lambatDates = new Set();
+  let totalMasukMenit = 0, jumlahMasuk = 0;
+
+  // Hitung hari kerja yang sudah lewat bulan ini (Senin-Sabtu, s/d hari ini)
+  const today = now.getDate(), month = now.getMonth(), year = now.getFullYear();
+  let workingDaysSoFar = 0;
+  for (let d = 1; d <= today; d++) {
+    if (new Date(year, month, d).getDay() !== 0) workingDaysSoFar++;
+  }
+
+  absensi.forEach(row => {
+    const tgl = row.tanggal;
+    // Hanya hitung sampai hari ini
+    if (tgl > today) return;
+
+    const jenis = row.jenisAbsen, jam = row.jam, menit = row.menit;
+    if (jenis === 'Absen Masuk' || jenis === 'Dinas Lapangan dari Rumah') {
+      hadirDates.add(tgl);
+      if (jenis === 'Absen Masuk') {
+        const menitTotal = jam * 60 + menit;
+        totalMasukMenit += menitTotal;
+        jumlahMasuk++;
+        if (isLambat(jam, menit)) lambatDates.add(tgl);
+      }
+    } else if (jenis === 'Sakit') sakitDates.add(tgl);
+    else if (jenis === 'Ijin dari Rumah' || jenis === 'Ijin dari Kantor') ijinDates.add(tgl);
+  });
+
+  const avgMasukMenit = jumlahMasuk > 0 ? Math.round(totalMasukMenit / jumlahMasuk) : 999;
+  const batasAbsen = 8 * 60 + 5; // 485 menit = 08:05
+
+  // Skor:
+  // Hadir per hari kerja = bobot terbesar
+  const hadirSkor = hadirDates.size * 100;
+  // Penalti ketidakhadiran
+  const penalti = sakitDates.size * 30 + ijinDates.size * 30 + lambatDates.size * 15;
+  // Bonus datang lebih awal (maks ~60 menit sebelum 08:05 = 6 poin per hari)
+  const earlyBonus = jumlahMasuk > 0
+    ? Math.round(Math.max(0, (batasAbsen - avgMasukMenit)) * jumlahMasuk / 10)
+    : 0;
+
+  const skor = hadirSkor - penalti + earlyBonus;
+
+  // Format rata-rata jam masuk untuk display
+  const avgJam = Math.floor(avgMasukMenit / 60);
+  const avgMen = avgMasukMenit % 60;
+  const avgMasukStr = jumlahMasuk > 0
+    ? String(avgJam).padStart(2,'0') + ':' + String(avgMen).padStart(2,'0')
+    : '--:--';
+
+  return {
+    skor, hadirDays: hadirDates.size, sakitDays: sakitDates.size,
+    ijinDays: ijinDates.size, lambatDays: lambatDates.size,
+    avgMasukMenit, avgMasukStr, workingDaysSoFar
+  };
+}
+
+function renderLbTop3(top) {
+  const medals = ['🥇','🥈','🥉'];
+  const rankClass = ['rank-1','rank-2','rank-3'];
+  const namaUser = localStorage.getItem('absensi_nama') || '';
+
+  // Susun: rank-2 kiri, rank-1 tengah (lebih tinggi), rank-3 kanan
+  const order = top.length >= 3 ? [top[1], top[0], top[2]] : top;
+  const orderClass = top.length >= 3 ? [rankClass[1], rankClass[0], rankClass[2]] : rankClass;
+  const orderMedal = top.length >= 3 ? [medals[1], medals[0], medals[2]] : medals;
+
+  const html = '<div class="lb-podium">' + order.map((emp, i) => {
+    const isMe = emp.nama === namaUser;
+    const heightStyle = (top.length >= 3 && i === 1) ? 'padding-top:22px;' : '';
+    return '<div class="lb-pod-card ' + orderClass[i] + (isMe ? ' lb-me' : '') + '" style="' + heightStyle + '">' +
+      '<div class="lb-pod-rank">' + orderMedal[i] + '</div>' +
+      '<div class="lb-pod-nama">' + escapeHtml(emp.nama) + (isMe ? ' 👤' : '') + '</div>' +
+      '<div class="lb-pod-score">' + emp.skor + ' pts</div>' +
+      '<div class="lb-pod-sub">Hadir ' + emp.hadirDays + ' · ⏰ ' + emp.avgMasukStr + '</div>' +
+    '</div>';
+  }).join('') + '</div>';
+
+  document.getElementById('lbTop3').innerHTML = html;
+}
+
+function renderLbRest(rest) {
+  if (!rest.length) return;
+  const namaUser = localStorage.getItem('absensi_nama') || '';
+  const html = rest.map((emp, i) => {
+    const isMe = emp.nama === namaUser;
+    return '<div class="lb-row' + (isMe ? ' lb-me' : '') + '">' +
+      '<div class="lb-row-rank">' + (i + 4) + '</div>' +
+      '<div style="flex:1; min-width:0;">' +
+        '<div class="lb-row-nama">' + escapeHtml(emp.nama) + (isMe ? ' 👤' : '') + '</div>' +
+        '<div class="lb-row-sub">Hadir ' + emp.hadirDays + ' · ⏰ ' + emp.avgMasukStr +
+          (emp.lambatDays > 0 ? ' · Terlambat ' + emp.lambatDays + 'x' : '') + '</div>' +
+      '</div>' +
+      '<div class="lb-row-score">' + emp.skor + '</div>' +
+    '</div>';
+  }).join('');
+  document.getElementById('lbRest').innerHTML = html;
+}
+  
 function gantiProfilFoto(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -1269,5 +1474,23 @@ function gantiProfilFoto(event) {
   reader.readAsDataURL(file);
 }
 </script>
+  <!-- ===== LEADERBOARD ===== -->
+<div class="page" id="page-leaderboard">
+  <div style="padding:16px">
+    <div style="text-align:center; padding:8px 0 16px;">
+      <div style="font-size:24px; font-weight:800;">🏆 Leaderboard</div>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:4px;" id="lbBulanLabel">—</div>
+    </div>
+
+    <!-- Top 3 podium -->
+    <div id="lbTop3" style="margin-bottom:16px;"></div>
+
+    <!-- Sisanya -->
+    <div id="lbRest"></div>
+
+    <div id="lbLoadingBox" class="loading-text" style="display:none">Memuat leaderboard...</div>
+    <div id="lbErrorBox" style="display:none; text-align:center; color:var(--danger); font-size:13px; padding:16px 0;"></div>
+  </div>
+</div>
 </body>
 </html>
